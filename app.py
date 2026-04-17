@@ -156,27 +156,21 @@ alt.themes.enable("none")
 with st.sidebar:
     st.header("Settings")
     st.caption("Save or load app settings (presets).")
+    from file_operations import save_preset, load_preset
+
     if st.button("💾 Save preset", use_container_width=True):
-        payload = json.dumps({k:v for k,v in st.session_state.items() if not k.startswith("_")}, indent=2)
         st.download_button(
             "⬇️ Download preset",
-            data=payload,
+            data=save_preset(st.session_state),
             file_name="mm_lead_analyzer_preset.json",
             mime="application/json",
             use_container_width=True
         )
     up = st.file_uploader("Load preset", type=["json"], key="preset_up")
-    if up is not None:
-        try:
-            data = json.load(up)
-            for k,v in data.items():
-                if isinstance(k,str) and not k.startswith("_"):
-                    st.session_state[k] = v
-            st.session_state["preset_loaded"] = True
-            st.session_state["economics_expanded"] = False  # Collapse economics when preset loaded
-            st.rerun()
-        except Exception as e:
-            st.error(f"Failed to load preset: {e}")
+    if up is not None and load_preset(up, st.session_state):
+        st.session_state["preset_loaded"] = True
+        st.session_state["economics_expanded"] = False
+        st.rerun()
     
     st.markdown("---")
     st.subheader("🕐 Sub-Segmentation")
@@ -283,7 +277,8 @@ with st.expander("1) Upload Files", expanded=True):
                         creds = json.load(f)
                         saved_client_id = creds.get('client_id', '')
                         saved_client_secret = creds.get('client_secret', '')
-                except:
+                except (OSError, json.JSONDecodeError, ValueError):
+                    # Corrupt or unreadable creds file; fall back to empty values.
                     pass
             
             client_id = st.text_input(
@@ -376,8 +371,8 @@ with st.expander("1) Upload Files", expanded=True):
                     else:
                         # If OAuth endpoint doesn't exist, return Basic Auth string
                         return encoded_credentials
-                except:
-                    # Fallback to Basic Auth
+                except (requests.RequestException, ValueError):
+                    # Network failure or non-JSON response — fall back to Basic Auth.
                     return base64.b64encode(f"{client_id}:{client_secret}".encode()).decode()
             
             # Step 1: Get OAuth2 access token
@@ -954,7 +949,8 @@ for i, click_file in enumerate(click_files):
     try:
         df = pd.read_csv(click_file)
         click_dfs.append(df)
-    except Exception:
+    except (UnicodeDecodeError, pd.errors.ParserError):
+        # C engine / default encoding failed; retry with the Python engine.
         click_file.seek(0)
         df = pd.read_csv(click_file, encoding="utf-8", engine="python")
         click_dfs.append(df)
@@ -1513,7 +1509,8 @@ for file_idx, click_raw in enumerate(files_to_process):
                 try:
                     df = pd.read_csv(stats_file)
                     stats_dfs.append(df)
-                except Exception:
+                except (UnicodeDecodeError, pd.errors.ParserError):
+                    # C engine / default encoding failed; retry with the Python engine.
                     stats_file.seek(0)
                     df = pd.read_csv(stats_file, encoding="utf-8", engine="python")
                     stats_dfs.append(df)
@@ -2570,8 +2567,11 @@ for file_idx, click_raw in enumerate(files_to_process):
     
         for nm in ["Quote Starts (from stats)","Phone Clicks (from stats)","SMS Clicks (from stats)","Clicks"]:
             if nm in display.columns:
-                try: display[nm] = display[nm].fillna(0).astype(int)
-                except: pass
+                try:
+                    display[nm] = display[nm].fillna(0).astype(int)
+                except (ValueError, TypeError):
+                    # Column contained non-coercible values; leave it formatted as-is.
+                    pass
         for nm in ["Cost per Phone+QS","Cost per SMS+QS","Cost per Lead"]:
             if nm in display.columns:
                 display[nm] = display[nm].apply(lambda v: fmt_num(v, True))
@@ -3251,7 +3251,8 @@ for file_idx, click_raw in enumerate(files_to_process):
                                                 'Desktop': int(row['Desktop modifier']) if not pd.isna(row.get('Desktop modifier')) else 100,
                                                 'Tablet': int(row['Tablet modifier']) if not pd.isna(row.get('Tablet modifier')) else 100
                                             }
-                                        except:
+                                        except (ValueError, TypeError, KeyError):
+                                            # Row has a non-numeric QMP ID or missing modifier column.
                                             pass
                     
                         # Check if Device Type is in the export data
@@ -3423,7 +3424,8 @@ for file_idx, click_raw in enumerate(files_to_process):
                                             'Desktop': int(row['Desktop modifier']) if not pd.isna(row.get('Desktop modifier')) else 100,
                                             'Tablet': int(row['Tablet modifier']) if not pd.isna(row.get('Tablet modifier')) else 100
                                         }
-                                    except:
+                                    except (ValueError, TypeError, KeyError):
+                                        # Row has a non-numeric QMP ID or missing modifier column.
                                         pass
                 
                     # Check if Device Type is in the export data
