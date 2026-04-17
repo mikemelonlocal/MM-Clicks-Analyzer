@@ -1,6 +1,8 @@
 # ui_components.py
 """Reusable UI components for MM Click Analyzer."""
 
+import html
+
 import streamlit as st
 from config import BRAND
 
@@ -66,13 +68,19 @@ def apply_custom_css():
 
 def info_badge(text: str, label: str = "ℹ️ Info"):
     """Display an info badge with tooltip.
-    
+
+    Both ``text`` and ``label`` are HTML-escaped before interpolation so
+    that user-supplied strings (e.g. derived from uploaded data) cannot
+    inject markup via ``unsafe_allow_html``.
+
     Args:
         text: Tooltip text
         label: Badge label
     """
+    safe_text = html.escape(str(text), quote=True)
+    safe_label = html.escape(str(label), quote=True)
     st.markdown(
-        f'<span class="badge-info" title="{text}">{label}</span>',
+        f'<span class="badge-info" title="{safe_text}">{safe_label}</span>',
         unsafe_allow_html=True
     )
 

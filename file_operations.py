@@ -3,6 +3,7 @@
 
 import io
 import json
+import re
 from datetime import datetime
 from typing import Dict, Optional, Tuple
 
@@ -43,42 +44,128 @@ def read_excel_file(file, sheet_name=None) -> Dict[str, pd.DataFrame]:
         return pd.read_excel(file, sheet_name=sheet_name)
 
 
+PRESET_SCHEMA_VERSION = 1
+PRESET_MAX_BYTES = 1_000_000  # 1 MB — real presets are a few KB
+_VALID_PRESET_KEY = re.compile(r"^[A-Za-z][A-Za-z0-9_]*$")
+# Streamlit-internal widget state that must not round-trip through presets.
+_PRESET_KEY_BLOCKLIST_PREFIXES = ("FormSubmitter",)
+_PRESET_KEY_BLOCKLIST_EXACT = {"preset_up"}
+
+
+def _is_safe_preset_key(key) -> bool:
+    """Return True if ``key`` looks like a legitimate preset field.
+
+    Rejects non-strings, leading underscores (private/internal), Streamlit
+    widget-state keys, and anything with characters outside
+    ``[A-Za-z0-9_]``.
+    """
+    if not isinstance(key, str):
+        return False
+    if key.startswith("_"):
+        return False
+    if key in _PRESET_KEY_BLOCKLIST_EXACT:
+        return False
+    if any(key.startswith(p) for p in _PRESET_KEY_BLOCKLIST_PREFIXES):
+        return False
+    return bool(_VALID_PRESET_KEY.match(key))
+
+
 def save_preset(session_state) -> str:
     """Save session state as JSON preset.
-    
+
+    Wraps the settings in an envelope with a schema version and timestamp
+    so future loads can detect incompatibility instead of silently
+    importing stale fields.
+
     Args:
         session_state: Streamlit session state
-        
+
     Returns:
         JSON string of preset
     """
-    # Filter out private/system keys
-    preset_data = {
+    payload = {
         k: v for k, v in session_state.items()
-        if not k.startswith("_")
+        if _is_safe_preset_key(k)
     }
-    return json.dumps(preset_data, indent=2)
+    envelope = {
+        "_preset_version": PRESET_SCHEMA_VERSION,
+        "_saved_at": datetime.utcnow().isoformat() + "Z",
+        "settings": payload,
+    }
+    return json.dumps(envelope, indent=2, default=str)
 
 
 def load_preset(file, session_state) -> bool:
     """Load preset from JSON file.
-    
+
+    Validates schema version, caps total size, and accepts only keys that
+    pass :func:`_is_safe_preset_key`. Unknown keys are surfaced as a
+    warning; the load still succeeds for the valid subset so presets from
+    earlier versions degrade gracefully rather than fail hard.
+
     Args:
         file: Uploaded JSON file
         session_state: Streamlit session state to update
-        
+
     Returns:
-        True if successful, False otherwise
+        True if any valid settings were imported.
     """
     try:
-        data = json.load(file)
-        for key, value in data.items():
-            if isinstance(key, str) and not key.startswith("_"):
-                session_state[key] = value
-        return True
-    except Exception as e:
-        st.error(f"Failed to load preset: {e}")
+        raw = file.read()
+    except OSError as e:
+        st.error(f"Failed to read preset file: {e}")
         return False
+
+    if len(raw) > PRESET_MAX_BYTES:
+        st.error(
+            f"Preset file too large ({len(raw):,} bytes > "
+            f"{PRESET_MAX_BYTES:,} byte limit)."
+        )
+        return False
+
+    try:
+        data = json.loads(raw)
+    except json.JSONDecodeError as e:
+        st.error(f"Preset is not valid JSON: {e}")
+        return False
+
+    if not isinstance(data, dict):
+        st.error("Preset must be a JSON object at the top level.")
+        return False
+
+    version = data.get("_preset_version")
+    if version is None:
+        # Older presets were a flat dict of settings. Accept them.
+        settings = data
+    elif version == PRESET_SCHEMA_VERSION:
+        settings = data.get("settings", {})
+        if not isinstance(settings, dict):
+            st.error("Preset 'settings' field must be an object.")
+            return False
+    else:
+        st.error(
+            f"Preset version {version} is not compatible with this app "
+            f"(expected {PRESET_SCHEMA_VERSION})."
+        )
+        return False
+
+    accepted = 0
+    rejected = []
+    for key, value in settings.items():
+        if _is_safe_preset_key(key):
+            session_state[key] = value
+            accepted += 1
+        else:
+            rejected.append(str(key))
+
+    if rejected:
+        preview = ", ".join(sorted(rejected)[:5])
+        suffix = "..." if len(rejected) > 5 else ""
+        st.warning(
+            f"Ignored {len(rejected)} unrecognized preset key(s): "
+            f"{preview}{suffix}"
+        )
+    return accepted > 0
 
 
 def create_device_modifiers_excel(

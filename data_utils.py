@@ -58,21 +58,36 @@ def find_column(df: pd.DataFrame, aliases: List[str]) -> Optional[str]:
     return None
 
 
-def to_numeric_safe(series: pd.Series) -> pd.Series:
+def to_numeric_safe(
+    series: pd.Series,
+    fill_na: Optional[float] = 0.0,
+) -> pd.Series:
     """Convert series to numeric, handling currency symbols and errors.
-    
+
+    For counts (clicks, quote starts) filling NaN with 0 is usually right
+    — a missing count really is "none". For spend/cost, "missing" and
+    "zero" are distinct: treating a missing-spend row as free traffic
+    will push it into the Top bucket with no cost signal. Pass
+    ``fill_na=None`` there so NaN propagates and downstream code can
+    decide whether to drop, ignore, or surface it.
+
     Args:
         series: Input series
-        
+        fill_na: Value to substitute for NaN. Use ``None`` to preserve NaN.
+
     Returns:
-        Numeric series with NaN filled as 0.0
+        Numeric series (NaN-filled when ``fill_na`` is not None).
     """
     if pd.api.types.is_numeric_dtype(series):
-        return series.fillna(0.0)
-    
-    # Remove non-numeric characters except decimal point and minus
-    cleaned = series.astype(str).str.replace(r"[^0-9.\-]", "", regex=True)
-    return pd.to_numeric(cleaned, errors="coerce").fillna(0.0)
+        numeric = series
+    else:
+        # Strip everything but digits, decimal point, and minus sign.
+        cleaned = series.astype(str).str.replace(r"[^0-9.\-]", "", regex=True)
+        numeric = pd.to_numeric(cleaned, errors="coerce")
+
+    if fill_na is None:
+        return numeric
+    return numeric.fillna(fill_na)
 
 
 def canonical_id(value: str) -> str:
