@@ -134,77 +134,21 @@ button:hover, .stButton > button:hover {
 </style>
 """, unsafe_allow_html=True)
 
-def info_badge(text: str, label: str="ℹ️ Info"):
-    st.markdown(f'<span class="badge-info" title="{text}">{label}</span>', unsafe_allow_html=True)
+# Helpers live in the extracted modules. Aliased imports preserve every
+# existing call site in this file unchanged.
+from ui_components import info_badge, session_state_default as ss_default
+from data_utils import (
+    normalize_name as normalize,
+    find_column,
+    to_numeric_safe as to_num,
+    canonical_id as canon_id,
+    normalize_device,
+    hash_dataframe_columns as hash_df_cols,
+    make_stable_row_key as make_row_key,
+)
 
 # Keep Altair simple (avoid theme callable bugs on v4)
 alt.themes.enable("none")
-
-# -----------------------------
-# Small helpers / session
-# -----------------------------
-def ss_default(key, value):
-    if key not in st.session_state:
-        st.session_state[key] = value
-    return st.session_state[key]
-
-def normalize(name: str) -> str:
-    s = re.sub(r"[\s_]+", "", str(name).lower())
-    s = re.sub(r"[^\w]", "", s)
-    if s.endswith("s") and s not in ("sms"):
-        s = s[:-1]
-    return s
-
-def find_column(df: pd.DataFrame, aliases) -> str | None:
-    if df is None or df.empty:
-        return None
-    nm = {normalize(c): c for c in df.columns}
-    for a in aliases:
-        key = normalize(a)
-        if key in nm:
-            return nm[key]
-    for c in df.columns:
-        nc = normalize(c)
-        if any(normalize(a) in nc for a in aliases):
-            return c
-    return None
-
-def to_num(s: pd.Series) -> pd.Series:
-    if pd.api.types.is_numeric_dtype(s):
-        return s.fillna(0.0)
-    return pd.to_numeric(s.astype(str).str.replace(r"[^0-9.\-]", "", regex=True), errors="coerce").fillna(0.0)
-
-def canon_id(x: str) -> str:
-    s = str(x or "").strip()
-    if s.endswith(".0"):
-        s = s[:-2]
-    s = s.lower()
-    s = re.sub(r"[^a-z0-9]", "", s)
-    return s
-
-def normalize_device(val: str) -> str:
-    v = (str(val or "")).strip().lower()
-    flat = re.sub(r"[^a-z0-9]", "", v)
-    if flat in {"mobile","m","iphone","android","phone"}: return "mobile"
-    if flat in {"desktop","pc","computer","mac","windows"}: return "desktop"
-    if flat in {"tablet","tab","ipad"}: return "tablet"
-    return ""
-
-def hash_df_cols(df: pd.DataFrame, cols: list[str]) -> str:
-    if df is None or df.empty: return ""
-    snap = df[cols].astype(str).agg("|".join, axis=1).tolist()
-    blob = "\n".join(snap)
-    return hashlib.sha256(("|".join(cols) + "||" + blob).encode()).hexdigest()[:16]
-
-def make_row_key(df: pd.DataFrame, device_col: str | None) -> pd.Series:
-    """Internal stable key (not shown)."""
-    if "QMPID" in df.columns:
-        q = df["QMPID"].astype(str).str.strip()
-        d = df[device_col].map(normalize_device).fillna("") if device_col and device_col in df.columns else ""
-        return q + "||" + (d if isinstance(d, pd.Series) else pd.Series([d]*len(df), index=df.index))
-    # fallback — use first grouping col
-    first = df.columns[0]
-    return df[first].astype(str).str.strip()
 
 # -----------------------------
 # Sidebar (presets only)
