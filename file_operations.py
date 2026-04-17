@@ -4,42 +4,49 @@
 import io
 import json
 import re
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Dict, Optional, Tuple
 
 import pandas as pd
 import streamlit as st
 
 
+@st.cache_data(show_spinner=False)
 def read_csv_file(file) -> pd.DataFrame:
     """Read CSV file with fallback encoding.
-    
+
+    Cached on the uploaded file's contents so re-running the Streamlit
+    script (every widget change) doesn't re-parse the same CSV.
+
     Args:
         file: Uploaded file object
-        
+
     Returns:
         DataFrame
     """
     try:
         return pd.read_csv(file)
-    except Exception:
+    except (UnicodeDecodeError, pd.errors.ParserError):
         file.seek(0)
         return pd.read_csv(file, encoding="utf-8", engine="python")
 
 
+@st.cache_data(show_spinner=False)
 def read_excel_file(file, sheet_name=None) -> Dict[str, pd.DataFrame]:
     """Read Excel file with fallback.
-    
+
+    Cached on the uploaded file's contents; see :func:`read_csv_file`.
+
     Args:
         file: Uploaded file object
         sheet_name: Specific sheet name or None for all sheets
-        
+
     Returns:
         Dict of sheet_name -> DataFrame
     """
     try:
         return pd.read_excel(file, sheet_name=sheet_name)
-    except Exception:
+    except (ValueError, OSError):
         file.seek(0)
         return pd.read_excel(file, sheet_name=sheet_name)
 
@@ -89,7 +96,7 @@ def save_preset(session_state) -> str:
     }
     envelope = {
         "_preset_version": PRESET_SCHEMA_VERSION,
-        "_saved_at": datetime.utcnow().isoformat() + "Z",
+        "_saved_at": datetime.now(timezone.utc).isoformat(),
         "settings": payload,
     }
     return json.dumps(envelope, indent=2, default=str)
