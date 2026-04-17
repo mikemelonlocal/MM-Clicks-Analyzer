@@ -1,0 +1,13 @@
+{
+  "sheet_name": null,
+  "results_join_key": "Publisher Company",
+  "device_col": "Device Type",
+  "id_header": "QMP ID",
+  "mobile_header": "Mobile modifier",
+  "desktop_header": "Desktop modifier",
+  "tablet_header": "Tablet modifier",
+  "mobile_aliases": "mobile,m,iphone,android,phone",
+  "desktop_aliases": "desktop,pc,computer,mac,windows",
+  "tablet_aliases": "tablet,tab,ipad",
+  "device_fallback": "base"
+}

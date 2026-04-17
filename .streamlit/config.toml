@@ -1,0 +1,6 @@
+[theme]
+primaryColor = "#47B74F"            # Cactus green
+backgroundColor = "#FEF8E9"         # Alpine neutral
+secondaryBackgroundColor = "#FFFFFF"
+textColor = "#0F172A"
+font = "sans serif"
