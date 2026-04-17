@@ -36,10 +36,11 @@ def find_column(df: pd.DataFrame, aliases: List[str]) -> Optional[str]:
     Returns:
         Actual column name if found, None otherwise
     """
-    if df is None or df.empty:
+    # Note: df.empty is True when there are zero rows, so we can't use it —
+    # a header-only frame still has columns to match against.
+    if df is None or len(df.columns) == 0:
         return None
-    
-    # Create normalized name mapping
+
     name_map = {normalize_name(c): c for c in df.columns}
     
     # Try exact matches first
